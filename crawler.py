@@ -12,6 +12,8 @@ from collections import deque
 from typing import Set, Dict, Optional
 import requests
 from bs4 import BeautifulSoup
+import threading
+import queue
 
 
 class WebCrawler:
@@ -33,19 +35,23 @@ class WebCrawler:
         self.base_url = f"{parsed.scheme}://{parsed.netloc}"
         
         self.visited: Set[str] = set()
-        self.to_visit = deque([seed_url])
+        self.to_visit = queue.Queue()
+        self.to_visit.put(seed_url)
         self.all_links: Set[str] = set()
         self.link_sources: Dict[str, Set[str]] = {}
         
         self.pages_crawled = 0
         self.links_found = 0
         
-        os.makedirs(output_dir, exist_ok=True)
+        self.visited_lock = threading.Lock()
+        self.links_lock = threading.Lock()
+        self.stats_lock = threading.Lock()
+        self.rate_limit_lock = threading.Lock()
+        self.last_request_time = 0
         
-        self.session = requests.Session()
-        self.session.headers.update({
-            'User-Agent': 'WebCrawler/1.0 (Educational Purpose; +https://example.com/bot)'
-        })
+        self.stop_crawl = threading.Event()
+        
+        os.makedirs(output_dir, exist_ok=True)
     
     def is_same_domain(self, url: str) -> bool:
         """Check if URL belongs to the seed domain."""
@@ -68,10 +74,23 @@ class WebCrawler:
         
         return url
     
+    def wait_for_rate_limit(self):
+        """Enforce rate limiting across all threads."""
+        with self.rate_limit_lock:
+            elapsed = time.time() - self.last_request_time
+            if elapsed < self.delay:
+                time.sleep(self.delay - elapsed)
+            self.last_request_time = time.time()
+    
     def fetch_page(self, url: str) -> Optional[str]:
         """Fetch page content with error handling."""
+        session = requests.Session()
+        session.headers.update({
+            'User-Agent': 'WebCrawler/1.0 (Educational Purpose; +https://example.com/bot)'
+        })
+        
         try:
-            response = self.session.get(url, timeout=10, allow_redirects=True)
+            response = session.get(url, timeout=10, allow_redirects=True)
             response.raise_for_status()
             return response.text
         except requests.exceptions.Timeout:
@@ -104,30 +123,41 @@ class WebCrawler:
         
         return links
     
-    def crawl(self, max_pages: int = 100):
-        """Main crawling loop."""
-        print(f"🚀 Starting crawl of {self.seed_url}")
-        print(f"📁 Saving links to: {self.output_dir}")
-        print(f"⏱️  Delay between requests: {self.delay}s")
-        print(f"🎯 Max pages: {max_pages}")
-        print("-" * 60)
-        
-        while self.to_visit and self.pages_crawled < max_pages:
-            url = self.to_visit.popleft()
-            
-            if url in self.visited:
+    def worker(self, worker_id: int, max_pages: int):
+        """Worker thread that processes URLs from the queue."""
+        while True:
+            try:
+                url = self.to_visit.get(timeout=1)
+            except queue.Empty:
+                if self.stop_crawl.is_set():
+                    break
                 continue
             
-            self.visited.add(url)
-            self.pages_crawled += 1
+            with self.visited_lock:
+                should_stop = self.pages_crawled >= max_pages
+                already_visited = url in self.visited
+                
+                if should_stop:
+                    if not self.stop_crawl.is_set():
+                        self.stop_crawl.set()
+                    self.to_visit.task_done()
+                    continue
+                    
+                if already_visited:
+                    self.to_visit.task_done()
+                    continue
+                
+                self.visited.add(url)
+                current_page = self.pages_crawled + 1
+                self.pages_crawled += 1
             
-            print(f"\n[{self.pages_crawled}/{max_pages}] Crawling: {url}")
+            print(f"\n[Worker-{worker_id}] [{current_page}/{max_pages}] Crawling: {url}")
             
+            self.wait_for_rate_limit()
             html = self.fetch_page(url)
             
-            time.sleep(self.delay)
-            
             if not html:
+                self.to_visit.task_done()
                 continue
             
             links = self.extract_links(html, url)
@@ -135,22 +165,51 @@ class WebCrawler:
             internal_links = 0
             external_links = 0
             
-            for link in links:
-                self.all_links.add(link)
+            with self.links_lock:
+                for link in links:
+                    self.all_links.add(link)
+                    
+                    if link not in self.link_sources:
+                        self.link_sources[link] = set()
+                    self.link_sources[link].add(url)
+                    
+                    if self.is_same_domain(link):
+                        internal_links += 1
+                        with self.visited_lock:
+                            if link not in self.visited and not self.stop_crawl.is_set():
+                                try:
+                                    self.to_visit.put_nowait(link)
+                                except queue.Full:
+                                    pass
+                    else:
+                        external_links += 1
                 
-                if link not in self.link_sources:
-                    self.link_sources[link] = set()
-                self.link_sources[link].add(url)
-                
-                if self.is_same_domain(link):
-                    internal_links += 1
-                    if link not in self.visited and link not in self.to_visit:
-                        self.to_visit.append(link)
-                else:
-                    external_links += 1
+                self.links_found += len(links)
             
-            self.links_found += len(links)
-            print(f"   Found {len(links)} links ({internal_links} internal, {external_links} external)")
+            print(f"   [Worker-{worker_id}] Found {len(links)} links ({internal_links} internal, {external_links} external)")
+            self.to_visit.task_done()
+    
+    def crawl(self, max_pages: int = 100, workers: int = 1):
+        """Main crawling loop with parallel workers."""
+        print(f"🚀 Starting crawl of {self.seed_url}")
+        print(f"📁 Saving links to: {self.output_dir}")
+        print(f"⏱️  Delay between requests: {self.delay}s")
+        print(f"🎯 Max pages: {max_pages}")
+        print(f"👷 Workers: {workers}")
+        print("-" * 60)
+        
+        threads = []
+        for i in range(workers):
+            t = threading.Thread(target=self.worker, args=(i + 1, max_pages), daemon=True)
+            t.start()
+            threads.append(t)
+        
+        self.to_visit.join()
+        
+        self.stop_crawl.set()
+        
+        for t in threads:
+            t.join(timeout=2)
         
         print("\n" + "=" * 60)
         print("✅ Crawling complete!")
@@ -220,7 +279,8 @@ def main():
 Examples:
   python crawler.py https://example.com
   python crawler.py https://example.com --max-pages 50 --delay 0.5
-  python crawler.py https://blog.example.com --output my_crawl_results
+  python crawler.py https://example.com --workers 4
+  python crawler.py https://blog.example.com --output my_crawl_results --workers 3
         """
     )
     
@@ -232,7 +292,7 @@ Examples:
     parser.add_argument(
         '--max-pages',
         type=int,
-        default=100,
+        default=10,
         help='Maximum number of pages to crawl (default: 100)'
     )
     
@@ -249,6 +309,13 @@ Examples:
         help='Output directory for crawled links (default: crawled_links)'
     )
     
+    parser.add_argument(
+        '--workers',
+        type=int,
+        default=1,
+        help='Number of parallel workers (default: 1)'
+    )
+    
     args = parser.parse_args()
     
     if not args.seed_url.startswith(('http://', 'https://')):
@@ -262,7 +329,7 @@ Examples:
     )
     
     try:
-        crawler.crawl(max_pages=args.max_pages)
+        crawler.crawl(max_pages=args.max_pages, workers=args.workers)
         crawler.save_results()
     except KeyboardInterrupt:
         print("\n\n⚠️  Crawl interrupted by user")

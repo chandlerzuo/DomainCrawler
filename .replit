@@ -21,9 +21,18 @@ args = "Crawler"
 name = "Crawler"
 author = "agent"
 
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python crawler.py --help"
-
 [workflows.workflow.metadata]
 outputType = "console"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python crawler.py https://example.com --max-pages 2 --workers 1"
+
+[[workflows.workflow]]
+name = "Test"
+mode = "sequential"
+author = 48792820
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python crawler_manual.py"

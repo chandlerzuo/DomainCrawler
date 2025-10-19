@@ -4,6 +4,8 @@ A Python-based web crawler that discovers and saves outbound links from a seed d
 
 ## Features
 
+- **Parallel crawling**: Multiple workers can crawl simultaneously with shared state
+- **Thread-safe**: Global lists prevent duplicate work across workers
 - **Domain-focused crawling**: Crawls pages within a seed domain and discovers all linked pages
 - **Link discovery**: Extracts and categorizes internal and external links
 - **Polite crawling**: Implements delays between requests and proper user-agent headers
@@ -31,8 +33,14 @@ python crawler.py https://example.com
 # Crawl up to 50 pages with 0.5 second delay
 python crawler.py https://example.com --max-pages 50 --delay 0.5
 
+# Use 4 parallel workers for faster crawling
+python crawler.py https://example.com --workers 4
+
 # Save to custom output directory
 python crawler.py https://blog.example.com --output my_results
+
+# Combine options for maximum efficiency
+python crawler.py https://example.com --max-pages 100 --workers 3 --delay 0.5
 ```
 
 ### Command-line Arguments
@@ -40,6 +48,7 @@ python crawler.py https://blog.example.com --output my_results
 - `seed_url` (required): The starting URL to crawl
 - `--max-pages`: Maximum number of pages to crawl (default: 100)
 - `--delay`: Delay between requests in seconds (default: 1.0)
+- `--workers`: Number of parallel workers (default: 1)
 - `--output`: Output directory for results (default: crawled_links)
 
 ## Output Files
@@ -73,6 +82,14 @@ This will:
 5. Records all links (both internal and external)
 6. Repeats until max pages reached or queue is empty
 7. Saves all results to organized text files
+
+### Parallel Crawling
+
+When using multiple workers (--workers > 1):
+- Each worker thread processes URLs from a shared queue
+- Thread-safe locks prevent duplicate crawling of the same URL
+- Global rate limiting ensures polite crawling across all workers
+- Workers coordinate to avoid exceeding the maximum page limit
 
 ## Notes
 
