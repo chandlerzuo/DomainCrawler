@@ -35,4 +35,4 @@ author = 48792820
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "python crawler_manual.py"
+args = "python async_crawler.py"
