@@ -1,5 +1,4 @@
 from urllib.parse import urljoin, urlparse, urldefrag
-import threading
 import time
 import requests
 from urllib.robotparser import RobotFileParser

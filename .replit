@@ -36,3 +36,12 @@ author = 48792820
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "python async_crawler.py"
+
+[[workflows.workflow]]
+name = "file_dupliation"
+mode = "sequential"
+author = 48792820
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python file_duplication.py"
