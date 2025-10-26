@@ -78,9 +78,10 @@ class Crawler:
     print(f"started worker {wid}")
     while True:
       try:
-        url = await self.queue.get()
+        url = self.queue.get_nowait()
       except asyncio.QueueEmpty:
         if self.finish.is_set():
+          print(f"worker {wid} sees an empty queue.")
           break
         continue
       try:
@@ -91,10 +92,10 @@ class Crawler:
           await self.parse(text, base_url)
       finally:
         self.queue.task_done()
+    print("worker {wid} stopped.")
 
   async def crawl(self):
     print("started crawling")
-    self.session = requests.Session()
     await self.queue.put(self.root_url)
     tasks =  [asyncio.create_task(self.worker(i)) for i in range(self.num_workers)]
     print("started workers")
@@ -103,6 +104,7 @@ class Crawler:
     for task in tasks:
       task.cancel()
     print("finished crawling")
+    await asyncio.gather(*tasks, return_exceptions=False)
 
 if __name__ == "__main__":
   crawler =  Crawler("https://chandlerzuo.github.io", 2, 1.0, "output", 1)
