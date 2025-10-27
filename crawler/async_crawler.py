@@ -92,7 +92,7 @@ class Crawler:
           await self.parse(text, base_url)
       finally:
         self.queue.task_done()
-    print("worker {wid} stopped.")
+    print(f"worker {wid} stopped.")
 
   async def crawl(self):
     print("started crawling")
@@ -101,8 +101,8 @@ class Crawler:
     print("started workers")
     await self.queue.join()
     print("queue is empty")
-    for task in tasks:
-      task.cancel()
+    # for task in tasks:
+    #   task.cancel()
     print("finished crawling")
     await asyncio.gather(*tasks, return_exceptions=False)
 

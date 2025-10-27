@@ -38,33 +38,6 @@ task = "shell.exec"
 args = "python crawler/async_crawler_v2.py"
 
 [[workflows.workflow]]
-name = "file_dupliation"
-mode = "sequential"
-author = 48792820
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python file_duplication.py"
-
-[[workflows.workflow]]
-name = "filededup_server"
-mode = "sequential"
-author = 48792820
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python filedup_server.py"
-
-[[workflows.workflow]]
-name = "filedup_client"
-mode = "sequential"
-author = 48792820
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python filedup_client.py"
-
-[[workflows.workflow]]
 name = "crawler_v1"
 mode = "sequential"
 author = 48792820
@@ -72,6 +45,15 @@ author = 48792820
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "python crawler/async_crawler.py"
+
+[[workflows.workflow]]
+name = "client_v2"
+mode = "sequential"
+author = 48792820
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python filededup/client_v2.py"
 
 [[ports]]
 localPort = 8080
